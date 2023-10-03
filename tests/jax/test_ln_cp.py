@@ -79,9 +79,9 @@ class TestShardingMetaGenerator:
         devices = np.asarray(jax.devices()[:DEVICE_COUNT]).reshape(*mesh_shape)
         with global_shard_guard(_get_sharding_resource(mesh_names, sharding_type)):
             with jax.sharding.Mesh(devices, mesh_names):
-                x_ = random.normal(random.PRNGKey(1124), (32, 128))
-                gamma = jnp.ones((128))
-                beta = jnp.ones((128))
+                x_ = random.normal(random.PRNGKey(1124), input_shape)
+                gamma = jnp.ones(other_shape)
+                beta = jnp.ones(other_shape)
                 graded_f = jax.value_and_grad(func, argnums=(0, 1, 2))
                 pjitter = pjit(graded_f)
                 ref_hlo = pjitter.lower(x_, gamma, beta).compile().as_text()
