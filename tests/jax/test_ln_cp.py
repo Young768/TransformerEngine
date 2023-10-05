@@ -52,6 +52,7 @@ SRS = [
 ]
 
 Allreduce = "all-reduce"
+Other = "other"
 
 class TestShardingMetaGenerator:
 
@@ -86,6 +87,9 @@ class TestShardingMetaGenerator:
                    if Allreduce in txt[0]:
                        if Allreduce not in result: result[Allreduce] = 0
                        result[Allreduce] += 1
+                    else:
+                        if Other not in result: result[Other] = 0
+                        result[Other] += 1
             return result
 
         devices = np.asarray(jax.devices()[:DEVICE_COUNT]).reshape(*mesh_shape)
