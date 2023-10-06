@@ -34,6 +34,20 @@ def _get_sharding_spec(mesh_names, sharding_type):
     else:
         raise NotImplementedError
 
+def _get_sharding_resource(mesh_names, sharding_type):
+    dp_r = None
+    tp_r = None
+
+    if sharding_type in (ShardingType.DP, ShardingType.DP_TP_COL, ShardingType.DP_TP_ROW):
+        dp_r = mesh_names[0]
+
+    if sharding_type in (ShardingType.TP_COL, ShardingType.TP_ROW):
+        tp_r = mesh_names[0]
+
+    if sharding_type in (ShardingType.DP_TP_COL, ShardingType.DP_TP_ROW):
+        tp_r = mesh_names[1]
+    return ShardingResource(dp_r, tp_r)
+    
 
 DEVICE_COUNT = 8
 MESH_CONFIG = [((8,), ("dp",), ShardingType.DP, {"all-reduce":2}),]
