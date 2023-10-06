@@ -25,44 +25,41 @@ from transformer_engine.jax.sharding_new import global_shard_guard as global_sha
 from transformer_engine.jax.layernorm import layernorm
 from jax.sharding import PartitionSpec, NamedSharding
 P = PartitionSpec
-​
-​
+
 def _get_sharding_spec(mesh_names, sharding_type):
-​
+
     if sharding_type is ShardingType.DP:
         return P(mesh_names[0], None), P(None), P(None)
     elif sharding_type is ShardingType.DP_TP_COL:
         return P(mesh_names[0], mesh_names[1]), P(None), P(None)
     else:
         raise NotImplementedError
-​
+
 def _get_sharding_resource(mesh_names, sharding_type):
     dp_r = None
     tp_r = None
-​
+
     if sharding_type in (ShardingType.DP, ShardingType.DP_TP_COL, ShardingType.DP_TP_ROW):
         dp_r = mesh_names[0]
-​
+
     if sharding_type in (ShardingType.TP_COL, ShardingType.TP_ROW):
         tp_r = mesh_names[0]
-​
+
     if sharding_type in (ShardingType.DP_TP_COL, ShardingType.DP_TP_ROW):
         tp_r = mesh_names[1]
     return ShardingResource(dp_r, tp_r), MeshResource(dp_r, tp_r)
-​
-​
+
 DEVICE_COUNT = 8
 MESH_CONFIG = [((8,1), ("dp","tp"), ShardingType.DP, {"all-reduce":2}),]
               #((4, 2), ("dp", "tp"), ShardingType.DP_TP_COL, {"all-reduce":1}),]
               #((8,), ("tp",), ShardingType.TP_COL, {}),
               #((2, 4), ("dp", "tp"), ShardingType.DP_TP_COL, {"all-reduce":1}),
-​
-​
+
 Allreduce = "all-reduce"
 Other = "other"
-​
+
 epsilon = 1e-6
-​
+
 def count_collective(hlo):
     tmp = hlo.splitlines()
     symb = "-start"
@@ -78,9 +75,9 @@ def count_collective(hlo):
                 if Other not in result: result[Other] = 0
                 result[Other] += 1
     return result
-​
+
 class TestXMAPGenerator:
-​
+
     @pytest.mark.parametrize('mesh_shape,mesh_names,sharding_type, collective_ref', MESH_CONFIG)
     @pytest.mark.parametrize('input_shape', [(32, 128)])
     @pytest.mark.parametrize('other_shape', [(128,)])
@@ -89,12 +86,11 @@ class TestXMAPGenerator:
     @pytest.mark.skipif(not is_devices_enough(DEVICE_COUNT), reason='Num of GPU is not enough')
     def test_layernorm(self, mesh_shape, mesh_names, sharding_type, collective_ref, input_shape, other_shape,
                          batch_dim, zero_centered_gamma):
-​
         def func(x, gamma, beta):
             x = layernorm(x, gamma, beta, layernorm_type="layernorm", zero_centered_gamma=zero_centered_gamma,
                                     epsilon=epsilon, sharding_type=sharding_type, dp_dim_index=batch_dim)
             return jnp.mean(x)
-​
+
         devices = np.asarray(jax.devices()[:DEVICE_COUNT]).reshape(*mesh_shape)
         with global_shard_guard(_get_sharding_resource(mesh_names, sharding_type)[0]):
             with jax.sharding.Mesh(devices, mesh_names):
@@ -107,10 +103,8 @@ class TestXMAPGenerator:
                 hlo = pjitter.lower(x_, gamma, beta).compile().as_text()
                 dic = count_collective(hlo)
                 assert dic==collective_ref, f"Expected number of collective is: {dic==collective_ref=}, but got {dic=}."
-​
-​
+
 class TestCPGenerator:
-​
     @pytest.mark.parametrize('mesh_shape,mesh_names,sharding_type, collective_ref', MESH_CONFIG)
     @pytest.mark.parametrize('input_shape', [(32, 128)])
     @pytest.mark.parametrize('other_shape', [(128,)])
