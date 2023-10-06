@@ -47,10 +47,10 @@ def _get_sharding_resource(mesh_names, sharding_type):
     if sharding_type in (ShardingType.DP_TP_COL, ShardingType.DP_TP_ROW):
         tp_r = mesh_names[1]
     return ShardingResource(dp_r, tp_r)
-    
+
 
 DEVICE_COUNT = 8
-MESH_CONFIG = [((8,), ("dp",), ShardingType.DP, {"all-reduce":2}),]
+MESH_CONFIG = [((8,1), ("dp","tp"), ShardingType.DP, {"all-reduce":2}),]
               #((4, 2), ("dp", "tp"), ShardingType.DP_TP_COL, {"all-reduce":1}),]
               #((8,), ("tp",), ShardingType.TP_COL, {}),
               #((2, 4), ("dp", "tp"), ShardingType.DP_TP_COL, {"all-reduce":1}),
@@ -60,11 +60,6 @@ Allreduce = "all-reduce"
 Other = "other"
 
 epsilon = 1e-6
-
-def func(x, gamma, beta):
-    x = layernorm(x, gamma, beta, layernorm_type="layernorm", zero_centered_gamma=zero_centered_gamma,
-                                    epsilon=epsilon, sharding_type=sharding_type, dp_dim_index=batch_dim)
-    return jnp.mean(x)
 
 def count_collective(hlo):
     tmp = hlo.splitlines()
@@ -93,6 +88,11 @@ class TestXMAPGenerator:
     def test_layernorm(self, mesh_shape, mesh_names, sharding_type, collective_ref, input_shape, other_shape,
                          batch_dim, zero_centered_gamma):
 
+        def func(x, gamma, beta):
+            x = layernorm(x, gamma, beta, layernorm_type="layernorm", zero_centered_gamma=zero_centered_gamma,
+                                    epsilon=epsilon, sharding_type=sharding_type, dp_dim_index=batch_dim)
+            return jnp.mean(x)
+
         devices = np.asarray(jax.devices()[:DEVICE_COUNT]).reshape(*mesh_shape)
         with global_shard_guard(_get_sharding_resource(mesh_names, sharding_type)):
             with jax.sharding.Mesh(devices, mesh_names):
@@ -117,38 +117,28 @@ class TestCPGenerator:
     @pytest.mark.skipif(not is_devices_enough(DEVICE_COUNT), reason='Num of GPU is not enough')
     def test_layernorm(self, mesh_shape, mesh_names, sharding_type, collective_ref, input_shape, other_shape,
                          batch_dim, zero_centered_gamma):
-
-        devices = np.asarray(jax.devices()[:DEVICE_COUNT]).reshape(*mesh_shape)
-        with global_shard_guard(_get_sharding_resource(mesh_names, sharding_type)):
-            with jax.sharding.Mesh(devices, mesh_names):
-                x_ = random.normal(random.PRNGKey(1124), input_shape)
-                gamma = jnp.ones(other_shape)
-                beta = jnp.ones(other_shape)
-                graded_f = jax.value_and_grad(func, argnums=(0, 1, 2))
-                pjitter = pjit(graded_f)
-                out = {}
-                hlo = pjitter.lower(x_, gamma, beta).compile().as_text()
-                dic = count_collective(hlo)
-                assert dic==collective_ref, f"Expected number of collective is: {dic==collective_ref=}, but got {dic=}."
         
+        def func(x, gamma, beta):
+            x = layernorm(x, gamma, beta, 'layernorm', zero_centered_gamma, epsilon)
+            return jnp.mean(x)
+       
         x_ = random.normal(random.PRNGKey(1124), input_shape)
         gamma = jnp.ones(other_shape)
         beta = jnp.ones(other_shape)
-        test = False
         x_spec, gamma_spec, beta_spec = _get_sharding_spec(mesh_names, sharding_type)
+        devices = np.asarray(jax.devices()[:DEVICE_COUNT]).reshape(*mesh_shape)
+        mesh = jax.sharding.Mesh(devices, mesh_names)
         with mesh, global_shard_guard(_get_sharding_resource(mesh_names, sharding_type)):
             x_ = jax.device_put(x_, NamedSharding(mesh, x_spec))
             gamma = jax.device_put(gamma, NamedSharding(mesh, gamma_spec))
             beta = jax.device_put(beta, NamedSharding(mesh, beta_spec))
-
+            graded_f = jax.value_and_grad(func, argnums=(0, 1, 2))
             pjitter = pjit(graded_f,
-                        in_shardings=[x_spec, gamma_spec, beta_spec],
-                        out_shardings=(None, x_spec, gamma_spec, beta_spec,))
-            
+                         in_shardings=[x_spec, gamma_spec, beta_spec],
+                        out_shardings=(None, (x_spec, gamma_spec, beta_spec),))
+                
             hlo = pjitter.lower(x_, gamma, beta).compile().as_text()
             dic = count_collective(hlo)
-            print(hlo)
             test_l, test_grads = pjitter(x_, gamma, beta)
             dic = count_collective(hlo)
-            assert test, f"{dic=}."
-            assert dic==collective_ref, f"Expected number of collective is: {dic==collective_ref=}, but got {dic=}."
+            assert dic==collective_ref, f"Expected number of collective is: {collective_ref=}, but got {dic=}."
