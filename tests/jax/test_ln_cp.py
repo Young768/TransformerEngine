@@ -1,7 +1,7 @@
 # Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # See LICENSE for license information.
-​
+
 import jax
 from jax import random
 import jax.numpy as jnp
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from functools import partial
 from jax.experimental.pjit import pjit
-​
+
 from utils import is_devices_enough
 from transformer_engine.jax.flax import extend_logical_axis_rules
 from transformer_engine.jax.sharding import get_dot_sharding_meta
